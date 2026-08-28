@@ -194,37 +194,31 @@ function _update()
 	-- move cursor
 	-- left
 	if btnp(⬅️) then 
+		local new_i = sel.idx-1
 		if sel.table == tables.deck and (sel.idx-1)%max_column ~= 0 then
-			local new_i = sel.idx-1
-
-			update_sel(new_i,tables.deck)
-			if sel.state == state.move then
+			if sel.state == state.hover then
+				update_sel(new_i,tables.deck)
+			elseif sel.state == state.move then
 				-- new_i needs to be last row in current column
-				new_i = sel.idx-1
-				while deck[new_i].type ~= card_type.empty do
-					new_i+=8
-				end
+				local last_row = find_last_row_in_column(new_i)
+				update_sel(last_row,tables.deck)
 			end
 		elseif sel.table == tables.slots and sel.idx>1 then
-			new_i = sel.idx-1
 			update_sel(new_i,tables.slots)
 		end
 	end
 	-- right
 	if btnp(➡️) then 
-		if sel.table == tables.deck and (sel.idx+1)%max_column ~= 1 then
-			local new_i = sel.idx+1
-
-			update_sel(new_i,tables.deck)
-			if sel.state == state.move then
+		local new_i = sel.idx+1
+		if sel.table == tables.deck and (new_i)%max_column ~= 1 then
+			if sel.state == state.hover then
+				update_sel(new_i,tables.deck)
+			elseif sel.state == state.move then
 				-- new_i needs to be last row in current column
-				new_i = sel.idx+1
-				while deck[new_i].type ~= card_type.empty do
-					new_i+=8
-				end
+				local last_row = find_last_row_in_column(new_i)
+				update_sel(last_row,tables.deck)
 			end
-		elseif sel.table == tables.slots and (card_slots[sel.idx+1])~=nil then
-			new_i = sel.idx+1
+		elseif sel.table == tables.slots and (card_slots[new_i])~=nil then
 			update_sel(new_i,tables.slots)
 		end
 	end
@@ -265,12 +259,14 @@ function _update()
 	end
 end
 
-function find_last_row_in_column(column)
-	local new_i = column
-	while deck[new_i].type ~= card_type.empty do
-		new_i += max_column
-	end
-	return new_i
+function find_last_row_in_column(idx)
+    local new_i = ((idx - 1) % max_column) + 1
+
+    while deck[new_i] ~= nil and deck[new_i].type ~= card_type.empty do
+        new_i += max_column
+    end
+
+    return new_i
 end
 
 function _draw()
@@ -461,36 +457,24 @@ function update_sel(i,table)
 
 	local st = sel.state
 	local sp = sel.sprite
-	sel = {
-		sprite=sp,
-		x=new.x+((new.w*8)/2)-1,
-		y=new.y,
-		card=new,
-		idx=i,
-		state=st,
-		table=table
-	}
-	
-	og_y = sel.y
+	if new ~= nil then
+		sel = {
+			sprite=sp,
+			x=new.x+((new.w*8)/2)-1,
+			y=new.y,
+			card=new,
+			idx=i,
+			state=st,
+			table=table
+		}
+		og_y = sel.y
+	end	
 end
 
 -- set selected card index to empty
 function set_empty_card(idx)
-    local old_card = deck[idx]
-
-    deck[idx] = {
-        val = nil,
-        type = card_type.empty,
-        col = nil,
-
-        x = old_card.x,
-        y = old_card.y,
-        w = old_card.w,
-        h = old_card.h,
-
-        column = old_card.column,
-        row = old_card.row
-    }
+    deck[idx].type = card_type.empty
+	deck[idx].val = nil
 end
 
 function set_grabbed_card()
@@ -518,7 +502,7 @@ function set_grabbed_card()
 
         update_sel(sel.idx, tables.deck)
 
-    elseif sel.state == state.hover then
+    elseif grabbed_card ~= nil and sel.state == state.hover then
 
         -- cancel movement
         deck[grabbed_card_idx] = grabbed_card
