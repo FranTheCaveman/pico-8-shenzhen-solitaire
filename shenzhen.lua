@@ -204,12 +204,10 @@ function _update()
 				while deck[new_i].type ~= card_type.empty do
 					new_i+=8
 				end
-				update_grabbed_card()
 			end
 		elseif sel.table == tables.slots and sel.idx>1 then
 			new_i = sel.idx-1
 			update_sel(new_i,tables.slots)
-			if sel.state == state.move then update_grabbed_card() end
 		end
 	end
 	-- right
@@ -224,12 +222,10 @@ function _update()
 				while deck[new_i].type ~= card_type.empty do
 					new_i+=8
 				end
-				update_grabbed_card()
 			end
 		elseif sel.table == tables.slots and (card_slots[sel.idx+1])~=nil then
 			new_i = sel.idx+1
 			update_sel(new_i,tables.slots)
-			if sel.state == state.move then update_grabbed_card() end
 		end
 	end
 	-- up
@@ -250,7 +246,6 @@ function _update()
 			sel.table = tables.slots
 			local new_i = 1
 			update_sel(new_i,tables.slots) 
-			update_grabbed_card()
 		end
 	end
 	-- down
@@ -261,8 +256,7 @@ function _update()
 				update_sel(new_i,tables.deck) 
 			elseif sel.state == state.move then
 				local new_i = find_last_row_in_column(1)
-				update_sel(new_i,tables.deck) 
-				update_grabbed_card()
+				update_sel(new_i,tables.deck)
 			end 
 		elseif sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
 			local new_i = sel.idx+max_column
@@ -319,10 +313,10 @@ function _draw()
 
 	-- draw grabbed card
 	if grabbed_card != nil then
-		spr(grabbed_card.type,grabbed_card.x,grabbed_card.y,grabbed_card.w,grabbed_card.h)
+		spr(grabbed_card.type,sel.x-7,sel.y,grabbed_card.w,grabbed_card.h)
 
 		if type(grabbed_card.val) == "number" then
-			print(grabbed_card.val,grabbed_card.x + 2,grabbed_card.y + 2,grabbed_card.col)
+			print(grabbed_card.val,sel.x-5,sel.y+2,grabbed_card.col)
 		end
 	end
 	
@@ -499,28 +493,24 @@ function set_empty_card(idx)
     }
 end
 
-function update_grabbed_card()
-	if grabbed_card != nil then
+function set_grabbed_card()
+    if sel.table == tables.deck and sel.state == state.move then
+
+        grabbed_card = {}
+		grabbed_card_idx = sel.idx
+
+        -- copy selected card information (since tables are passed by reference)
+		grabbed_card.val = sel.card.val
+		grabbed_card.type = sel.card.type
+		grabbed_card.col = sel.card.col
         grabbed_card.x = sel.card.x
         grabbed_card.y = sel.card.y
         grabbed_card.column = sel.card.column
         grabbed_card.row = sel.card.row
-    end
-end
+		grabbed_card.w = sel.card.w
+        grabbed_card.h = sel.card.h
 
-function set_grabbed_card()
-    if sel.state == state.move then
-
-        grabbed_card = sel.card
-
-        -- save original position
-        grabbed_card.og_idx = sel.idx
-        grabbed_card.og_x = grabbed_card.x
-        grabbed_card.og_y = grabbed_card.y
-        grabbed_card.og_column = grabbed_card.column
-        grabbed_card.og_row = grabbed_card.row
-
-        -- remove card from deck
+        -- set selected card from deck to empty
         set_empty_card(sel.idx)
 
         -- move selection down one row
@@ -528,24 +518,12 @@ function set_grabbed_card()
 
         update_sel(sel.idx, tables.deck)
 
-        update_grabbed_card()
-
     elseif sel.state == state.hover then
 
         -- cancel movement
-        deck[grabbed_card.og_idx] = grabbed_card
+        deck[grabbed_card_idx] = grabbed_card
 
-        grabbed_card.x = grabbed_card.og_x
-        grabbed_card.y = grabbed_card.og_y
-        grabbed_card.column = grabbed_card.og_column
-        grabbed_card.row = grabbed_card.og_row
-
-        grabbed_card.og_idx = nil
-        grabbed_card.og_x = nil
-        grabbed_card.og_y = nil
-        grabbed_card.og_column = nil
-        grabbed_card.og_row = nil
-
+		-- clear grabbed card
         grabbed_card = nil
 
 		update_sel(sel.idx-8,tables.deck)
