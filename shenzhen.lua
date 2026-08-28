@@ -177,18 +177,30 @@ function _update()
 	
 	-- x to toggle move/hover
 	if btnp(❎) then
-		if sel.state == state.hover then 
+		if sel.state == state.hover and check_grabbable() then
 			sel.state = state.move
+			set_grabbed_cards()
 		elseif sel.state == state.move then 
-			sel.state = state.hover
+			if check_placeable() == true then
+				-- place and clear grabbed cards
+				place_grabbed_cards(sel.idx)
+				sel.state = state.hover
+			end
 		end
-		set_grabbed_cards()
+	end
+	if btnp(🅾️) then
+		-- cancel move
+		if sel.state == state.move then 
+			sel.state = state.hover
+			-- return cards to original position
+			place_grabbed_cards(grabbed_card_idx)
+		end
 	end
 	
 	if sel.state == state.hover then
-	sel.sprite = 71
+		sel.sprite = 71
 	elseif sel.state == state.move then
-	sel.sprite = 87
+		sel.sprite = 87
 	end
 	
 	-- move cursor
@@ -197,7 +209,8 @@ function _update()
 		local new_i = sel.idx-1
 		if sel.table == tables.deck and (sel.idx-1)%max_column ~= 0 then
 			if sel.state == state.hover then
-				update_sel(new_i,tables.deck)
+				local last_row = find_last_row_in_column(new_i)-max_column
+				update_sel(last_row,tables.deck)
 			elseif sel.state == state.move then
 				-- new_i needs to be last row in current column
 				local last_row = find_last_row_in_column(new_i)
@@ -212,7 +225,8 @@ function _update()
 		local new_i = sel.idx+1
 		if sel.table == tables.deck and (new_i)%max_column ~= 1 then
 			if sel.state == state.hover then
-				update_sel(new_i,tables.deck)
+				local last_row = find_last_row_in_column(new_i)-max_column
+				update_sel(last_row,tables.deck)
 			elseif sel.state == state.move then
 				-- new_i needs to be last row in current column
 				local last_row = find_last_row_in_column(new_i)
@@ -235,8 +249,8 @@ function _update()
 				update_sel(new_i,tables.slots) 
 			end
 		end
-		-- if moving, up takes you straight to slots
-		if sel.state == state.move and sel.table == tables.deck then
+		-- if moving, up takes you straight to slots (if not holding stack of cards)
+		if sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
 			sel.table = tables.slots
 			local new_i = 1
 			update_sel(new_i,tables.slots) 
@@ -270,7 +284,50 @@ function find_last_row_in_column(idx)
 end
 
 -- check if column to grab is alternating colours and descending in number by 1
-function check_grabbable_column()
+function check_grabbable()
+	local is_grabbable = false
+	local next_card = sel.idx + max_column
+	local curr_card = sel.idx
+
+	if sel.table ~= tables.deck and sel.type ~= card_type.empty then return true
+	elseif deck[next_card].type == card_type.empty then return true
+	elseif type(deck[curr_card].val) ~= "number" then return false
+	else
+		-- check if next card: is a number, a different suit, and is less than current card by 1
+		while deck[next_card].type ~= card_type.empty do
+			if type(deck[next_card].val) == "number" and 
+			deck[next_card].type ~= deck[curr_card].type and 
+			deck[next_card].val == deck[curr_card].val-1 then
+				is_grabbable = true
+			else
+				is_grabbable = false
+			end
+
+			-- move down one card
+			curr_card = next_card
+			next_card += max_column
+		end
+	end
+	return is_grabbable
+end
+
+-- check if grabbed cards can be placed on the selected slot
+function check_placeable() 
+	if sel.table == tables.slots and sel.type == card_type.empty then 
+		return true
+	elseif sel.table == tables.deck then
+		local prev_card = sel.idx - max_column
+		-- if not holding number card, cant place in deck
+		if type(grabbed_card[1].val) ~= "number" then return false
+		-- check if previous card: is a number, a different suit, and is higher than 1st grabbed card by 1
+		elseif type(deck[prev_card].val) == "number" and 
+		deck[prev_card].type ~= grabbed_card[1].type and 
+		deck[prev_card].val == grabbed_card[1].val+1 then
+			return true
+		end
+	end
+	return false
+end 
 
 function _draw()
 	cls(3) -- background color
@@ -516,20 +573,28 @@ function set_grabbed_cards()
         sel.idx += max_column
 
         update_sel(sel.idx, tables.deck)
+	end
+end
 
-    elseif grabbed_card ~= nil and sel.state == state.hover then
+function place_grabbed_cards(idx)
+	if grabbed_card ~= nil then
 
         -- cancel movement
-		local i = grabbed_card_idx
-		for card in all (grabbed_card) do
+		local i = idx
+		for card in all(grabbed_card) do
+			card.x = deck[i].x
+			card.y = deck[i].y
+			card.column = deck[i].column
+			card.row = deck[i].row
+
 			deck[i] = card
 			i += max_column
 		end
 
-		-- clear grabbed card
+		-- clear grabbed cards
         grabbed_card = nil
 		grabbed_card_idx = nil
 
-		update_sel(sel.idx-max_column,tables.deck)
+		update_sel(i-max_column,tables.deck)
     end
 end
