@@ -97,9 +97,15 @@ function _init()
 	for i=1,3 do
 		slot = {
 			sprite=64,
-			type=card_type.empty,
 			x=card_spacing,
 			y=card_slot_height,
+			card = {
+				type = card_type.empty,
+				x=card_spacing,
+				y=card_slot_height,
+				w=2,
+				h=3,
+			},
 			w=2,
 			h=3,
 		}
@@ -260,8 +266,8 @@ function _update()
 	if btnp(⬇️) then
 		if sel.table == tables.slots or sel.table == tables.dragons or sel.table == tables.foundations then
 			if sel.state == state.hover then
-				local new_i = 1
-				update_sel(new_i,tables.deck) 
+				local new_i = find_last_row_in_column(1)
+				update_sel(new_i-max_column,tables.deck) 
 			elseif sel.state == state.move then
 				local new_i = find_last_row_in_column(1)
 				update_sel(new_i,tables.deck)
@@ -289,31 +295,37 @@ function check_grabbable()
 	local next_card = sel.idx + max_column
 	local curr_card = sel.idx
 
-	if sel.table ~= tables.deck and sel.type ~= card_type.empty then return true
-	elseif deck[next_card].type == card_type.empty then return true
-	elseif type(deck[curr_card].val) ~= "number" then return false
-	else
-		-- check if next card: is a number, a different suit, and is less than current card by 1
-		while deck[next_card].type ~= card_type.empty do
-			if type(deck[next_card].val) == "number" and 
-			deck[next_card].type ~= deck[curr_card].type and 
-			deck[next_card].val == deck[curr_card].val-1 then
-				is_grabbable = true
-			else
-				is_grabbable = false
-			end
+	if sel.table == tables.slots and sel.card.type ~= card_type.empty then return true
+	
+	elseif sel.table == tables.deck then
+		-- grabbable if next row's slot is empty
+		if deck[next_card].type == card_type.empty then return true
+		-- not grabbable if current card isnt a number
+		elseif type(deck[curr_card].val) ~= "number" then return false
 
-			-- move down one card
-			curr_card = next_card
-			next_card += max_column
+		else
+			-- check if next card: is a number, a different suit, and is less than current card by 1
+			while deck[next_card].type ~= card_type.empty do
+				if type(deck[next_card].val) == "number" and 
+				deck[next_card].type ~= deck[curr_card].type and 
+				deck[next_card].val == deck[curr_card].val-1 then
+					is_grabbable = true
+				else
+					is_grabbable = false
+				end
+
+				-- move down one card
+				curr_card = next_card
+				next_card += max_column
+			end
 		end
+		return is_grabbable
 	end
-	return is_grabbable
 end
 
 -- check if grabbed cards can be placed on the selected slot
 function check_placeable() 
-	if sel.table == tables.slots and sel.type == card_type.empty then 
+	if sel.table == tables.slots and sel.card.type == card_type.empty then 
 		return true
 	elseif sel.table == tables.deck then
 		local prev_card = sel.idx - max_column
@@ -341,6 +353,15 @@ function _draw()
 	-- draw card slots
 	for slot in all(card_slots) do
 		spr(slot.sprite,slot.x,slot.y,slot.w,slot.h)
+		if slot.card.val ~= nil then 
+			-- draw card
+			spr(slot.card.type,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
+			
+			-- draw number
+			if type(slot.card.val) == "number" then
+				print(slot.card.val,slot.card.x+2,slot.card.y+2,slot.card.col)
+			end
+		end
 	end
 	
 	-- draw dragon buttons
@@ -512,7 +533,7 @@ function update_sel(i,table)
 	if table == tables.deck then
 		new = deck[i]
 	elseif table == tables.slots then
-		new = card_slots[i]
+		new = card_slots[i].card
 	elseif table == tables.dragons then
 		new = dragon_buttons[i]
 	elseif table == tables.foundations then
@@ -537,64 +558,98 @@ end
 
 -- set selected card index to empty
 function set_empty_card(idx)
-    deck[idx].type = card_type.empty
-	deck[idx].val = nil
+	if sel.table == tables.deck then 
+		deck[idx].type = card_type.empty
+		deck[idx].val = nil
+	elseif sel.table == tables.slots then
+		card_slots[idx].card.type = card_type.empty
+		card_slots[idx].card.val = nil
+	end
 end
 
 function set_grabbed_cards()
-    if sel.table == tables.deck and sel.state == state.move then
-
-        grabbed_card = {}
+	if sel.state == state.move then
+		grabbed_card = {}
 		grabbed_card_idx = sel.idx
+		
+		if sel.table == tables.deck then
+			local gc_i = 1
+			local dc_i = sel.idx
+			while deck[dc_i].type ~= card_type.empty do
+				-- copy selected card information (since tables are passed by reference)
+				grabbed_card[gc_i] = {}
+				grabbed_card[gc_i].val = deck[dc_i].val
+				grabbed_card[gc_i].type = deck[dc_i].type
+				grabbed_card[gc_i].col = deck[dc_i].col
+				grabbed_card[gc_i].x = deck[dc_i].x
+				grabbed_card[gc_i].y = deck[dc_i].y
+				grabbed_card[gc_i].column = deck[dc_i].column
+				grabbed_card[gc_i].row = deck[dc_i].row
+				grabbed_card[gc_i].w = deck[dc_i].w
+				grabbed_card[gc_i].h = deck[dc_i].h
 
-		local gc_i = 1
-		local dc_i = sel.idx
-		while deck[dc_i].type ~= card_type.empty do
+				-- set selected card from deck to empty
+				set_empty_card(dc_i)
+
+				dc_i += max_column
+				gc_i += 1
+			end
+
+			-- move selection down one row
+			sel.idx += max_column
+
+			update_sel(sel.idx, tables.deck)
+
+		elseif sel.table == tables.slots then 
+			local gc_i = 1
+			local sc_i = sel.idx
+
 			-- copy selected card information (since tables are passed by reference)
 			grabbed_card[gc_i] = {}
-			grabbed_card[gc_i].val = deck[dc_i].val
-			grabbed_card[gc_i].type = deck[dc_i].type
-			grabbed_card[gc_i].col = deck[dc_i].col
-			grabbed_card[gc_i].x = deck[dc_i].x
-			grabbed_card[gc_i].y = deck[dc_i].y
-			grabbed_card[gc_i].column = deck[dc_i].column
-			grabbed_card[gc_i].row = deck[dc_i].row
-			grabbed_card[gc_i].w = deck[dc_i].w
-			grabbed_card[gc_i].h = deck[dc_i].h
+			grabbed_card[gc_i].val = card_slots[sc_i].card.val
+			grabbed_card[gc_i].type = card_slots[sc_i].card.type
+			grabbed_card[gc_i].col = card_slots[sc_i].card.col
+			grabbed_card[gc_i].x = card_slots[sc_i].card.x
+			grabbed_card[gc_i].y = card_slots[sc_i].card.y
+			grabbed_card[gc_i].column = card_slots[sc_i].card.column
+			grabbed_card[gc_i].row = card_slots[sc_i].card.row
+			grabbed_card[gc_i].w = card_slots[sc_i].card.w
+			grabbed_card[gc_i].h = card_slots[sc_i].card.h
 
-			-- set selected card from deck to empty
-        	set_empty_card(dc_i)
-
-			dc_i += max_column
-			gc_i += 1
+			-- set selected card from slot to empty
+			set_empty_card(sc_i)
 		end
-
-        -- move selection down one row
-        sel.idx += max_column
-
-        update_sel(sel.idx, tables.deck)
 	end
 end
 
 function place_grabbed_cards(idx)
 	if grabbed_card ~= nil then
-
-        -- cancel movement
 		local i = idx
-		for card in all(grabbed_card) do
-			card.x = deck[i].x
-			card.y = deck[i].y
-			card.column = deck[i].column
-			card.row = deck[i].row
+		-- place grabbed cards at index
+		if sel.table == tables.slots then 
+			grabbed_card[1].x = card_slots[i].x
+			grabbed_card[1].y = card_slots[i].y
+			grabbed_card[1].column = 1
+			grabbed_card[1].row = 1
 
-			deck[i] = card
-			i += max_column
+			card_slots[i].card = grabbed_card[1]
+		elseif sel.table == tables.deck then
+			for card in all(grabbed_card) do
+				card.x = deck[i].x
+				card.y = deck[i].y
+				card.column = deck[i].column
+				card.row = deck[i].row
+
+				deck[i] = card
+				i += max_column
+			end
 		end
 
 		-- clear grabbed cards
         grabbed_card = nil
 		grabbed_card_idx = nil
 
+		-- cancel movement
 		update_sel(i-max_column,tables.deck)
     end
 end
