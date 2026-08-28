@@ -2,9 +2,20 @@ pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
 function _init()
+	foundflower = false
+
+	animating_card = nil
+	animating_card_start_x = 0
+	animating_card_start_y = 0
+	animating_card_end_x = 0
+	animating_card_end_y = 0
+	animating_card_t = 0
+
 	init_deck={}
 	
 	grabbed_card = nil
+
+	is_initial_autoplay_done = false
 
     max_column = 8
     max_row = 12
@@ -138,6 +149,13 @@ function _init()
 		sprite=67,
 		x=card_spacing,
 		y=card_slot_height,
+		card = {
+			type = card_type.empty,
+			x=card_spacing,
+			y=card_slot_height,
+			w=2,
+			h=3,
+		},
 		w=2,
 		h=3,
 	}
@@ -150,6 +168,13 @@ function _init()
 				sprite=69,
 				x=card_spacing,
 				y=card_slot_height,
+				card = {
+					type = card_type.empty,
+					x=card_spacing,
+					y=card_slot_height,
+					w=2,
+					h=3,
+				},
 				w=2,
 				h=3,
 			}
@@ -277,6 +302,85 @@ function _update()
 			update_sel(new_i,tables.deck) 
 		end
 	end
+
+	if is_initial_autoplay_done == false then 
+		autoplay_tables()
+		is_initial_autoplay_done = true
+	end
+
+	if animating_card ~= nil then
+		animating_card_t += 0.08
+
+		if animating_card_t >= 1 then
+			animating_card_t = 1
+
+			animating_card.x = animating_card_end_x
+			animating_card.y = animating_card_end_y
+
+			flower_slot.card = animating_card
+			animating_card = nil
+
+		else
+			animating_card.x = lerp(
+				animating_card_start_x,
+				animating_card_end_x,
+				animating_card_t
+			)
+
+			animating_card.y = lerp(
+				animating_card_start_y,
+				animating_card_end_y,
+				animating_card_t
+			)
+		end
+	end
+end
+
+-- linear interpolation for smooth animation
+function lerp(start_x,end_x,t)
+    return start_x+(end_x-start_x)*t
+end
+
+-- check if there is a card to go into the foundation or flower slots
+-- and move it automatically (animated)
+function autoplay_tables()
+	-- get lowest nonempty row of each column
+	local column = 1
+
+	while column <= max_column do
+		local i = find_last_row_in_column(column)-max_column
+
+		if deck[i].type == card_type.flower then
+			foundflower = true
+			start_card_animation(i, flower_slot)
+			break
+		end
+
+		column += 1
+	end
+end
+
+function start_card_animation(i, slot)
+    animating_card = {
+        val = deck[i].val,
+        type = deck[i].type,
+        col = deck[i].col,
+        x = deck[i].x,
+        y = deck[i].y,
+        w = deck[i].w,
+        h = deck[i].h
+    }
+
+    animating_card_start_x = deck[i].x
+    animating_card_start_y = deck[i].y
+
+    animating_card_end_x = slot.x
+    animating_card_end_y = slot.y
+
+    animating_card_t = 0
+
+    -- remove it from the deck logically
+    deck[i].type = card_type.empty
 end
 
 function find_last_row_in_column(idx)
@@ -371,6 +475,10 @@ function _draw()
 	
 	-- draw flower slot
 	spr(flower_slot.sprite,flower_slot.x,flower_slot.y,flower_slot.w,flower_slot.h)
+	if flower_slot.card.val ~= nil then 
+		-- draw card
+		spr(flower_slot.card.type,flower_slot.card.x,flower_slot.card.y,flower_slot.card.w,flower_slot.card.h)
+	end
 	
 	-- draw foundation slots
 	for slot in all(foundation_slots) do
@@ -408,14 +516,12 @@ function _draw()
 	rectfill(126,0,127,127,1)
 	
 	-- new game button
-	rect(89,117,125,125,6)
-	rect(90,117,124,117,8)
-	print("new game",92,119,6)
+	rectfill(89,117,125,125,6)
+	-- rect(89,117,125,117,8)
+	print("new game",92,119,1)
 	
 	-- score counter
-	rect(2,117,42,125,6)
-	print("win count",5,119,6)
-	rect(42,117,62,125,6)
+	print("win count:000",2,119,6)
 	
 	-- print randomized deck
 --	local y = 4
@@ -425,6 +531,27 @@ function _draw()
 --	end
 	-- draw selection
 	spr(sel.sprite,sel.x,sel.y)
+
+	if foundflower then print("found flower",45,100,1) end
+
+	if animating_card ~= nil then
+		spr(
+			animating_card.type,
+			animating_card.x,
+			animating_card.y,
+			animating_card.w,
+			animating_card.h
+		)
+
+		if type(animating_card.val) == "number" then
+			print(
+				animating_card.val,
+				animating_card.x + 2,
+				animating_card.y + 2,
+				animating_card.col
+			)
+		end
+	end
 end
 
 function randomise_deck(deck)
@@ -571,7 +698,7 @@ function set_grabbed_cards()
 	if sel.state == state.move then
 		grabbed_card = {}
 		grabbed_card_idx = sel.idx
-		
+
 		if sel.table == tables.deck then
 			local gc_i = 1
 			local dc_i = sel.idx
