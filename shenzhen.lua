@@ -14,6 +14,7 @@ function _init()
 	init_deck={}
 	
 	grabbed_card = nil
+	grabbed_card_table = nil
 
 	is_initial_autoplay_done = false
 	is_autoplaying = false
@@ -221,7 +222,7 @@ function _update()
 		if sel.state == state.move then 
 			sel.state = state.hover
 			-- return cards to original position
-			place_grabbed_cards(grabbed_card_idx)
+			place_grabbed_cards(grabbed_card_idx, true)
 		end
 	end
 	
@@ -243,11 +244,18 @@ function _update()
 					update_sel(last_row,tables.deck)
 				elseif sel.state == state.move then
 					-- new_i needs to be last empty row in current column
-					local last_row = find_last_row_in_column(new_i) <= 8 and find_last_row_in_column(new_i) or find_last_row_in_column(new_i)+max_column
+					local last_row = find_last_row_in_column(new_i)
+					if deck[last_row].type ~= card_type.empty then last_row += max_column end 
 					update_sel(last_row,tables.deck)
 				end
 			elseif sel.table == tables.slots and sel.idx>1 then
 				update_sel(new_i,tables.slots)
+			elseif sel.table == tables.foundations then 
+				if sel.idx>1 then 
+					update_sel(new_i,tables.foundations)
+				else
+					update_sel(#card_slots,tables.slots)
+				end
 			end
 		end
 		-- right
@@ -259,11 +267,21 @@ function _update()
 					update_sel(last_row,tables.deck)
 				elseif sel.state == state.move then
 					-- new_i needs to be last empty row in current column
-					local last_row = find_last_row_in_column(new_i) <= 8 and find_last_row_in_column(new_i) or find_last_row_in_column(new_i)+max_column
+					local last_row = find_last_row_in_column(new_i)
+					if deck[last_row].type ~= card_type.empty then last_row += max_column end 
 					update_sel(last_row,tables.deck)
 				end
-			elseif sel.table == tables.slots and (card_slots[new_i])~=nil then
-				update_sel(new_i,tables.slots)
+			elseif sel.table == tables.slots then
+				if (card_slots[new_i])~=nil then
+					update_sel(new_i,tables.slots)
+				-- can only navigate to foundation slots if moving a card
+				elseif sel.state == state.move and (card_slots[new_i])==nil then
+					update_sel(1,tables.foundations)
+				end
+			elseif sel.table == tables.foundations then
+				if (card_slots[new_i])~=nil then
+					update_sel(new_i,tables.foundations)
+				end
 			end
 		end
 		-- up
@@ -428,6 +446,10 @@ function find_last_row_in_column(idx)
 	-- convert to column
     local new_i = ((idx - 1) % max_column) + 1
 
+	-- if first card in column is empty, return negative column number
+	if deck[new_i].type == card_type.empty then return new_i end
+
+	-- otherwise find index of last row in column
     while deck[new_i+max_column] ~= nil and deck[new_i+max_column].type ~= card_type.empty do
         new_i += max_column
     end
@@ -473,9 +495,14 @@ end
 
 -- check if grabbed cards can be placed on the selected slot
 function check_placeable() 
+	-- can place in an empty top card slot or an empty deck column
 	if (sel.table == tables.slots and sel.card.type == card_type.empty) or 
 	(sel.table == tables.deck and sel.card.type == card_type.empty and sel.idx <= max_column) then 
 		return true
+	-- can place in foundation slot if slot card is same suit and less than held card by 1
+	elseif sel.table == tables.foundations and grabbed_card[1].type == sel.card.type and sel.card.val == grabbed_card[1].val-1 then
+		return true
+	-- can place in deck if card below is different suit and greater than held card by 1
 	elseif sel.table == tables.deck then
 		local prev_card = sel.idx - max_column
 		-- if not holding number card, cant place in deck
@@ -718,7 +745,7 @@ function update_sel(i,table)
 	elseif table == tables.dragons then
 		new = dragon_buttons[i]
 	elseif table == tables.foundations then
-		new = foundation_slots[i]
+		new = foundation_slots[i].card
 	end
 
 	local st = sel.state
@@ -752,6 +779,7 @@ function set_grabbed_cards()
 	if sel.state == state.move then
 		grabbed_card = {}
 		grabbed_card_idx = sel.idx
+		grabbed_card_table = sel.table
 
 		if sel.table == tables.deck then
 			local gc_i = 1
@@ -803,34 +831,49 @@ function set_grabbed_cards()
 	end
 end
 
-function place_grabbed_cards(idx)
+function place_grabbed_cards(idx, cancel)
 	if grabbed_card ~= nil then
 		local i = idx
-		-- place grabbed cards at index
-		if sel.table == tables.slots then 
-			grabbed_card[1].x = card_slots[i].x
-			grabbed_card[1].y = card_slots[i].y
-			grabbed_card[1].column = 1
-			grabbed_card[1].row = 1
 
-			card_slots[i].card = grabbed_card[1]
-		elseif sel.table == tables.deck then
+		-- return cards to old position no matter what table you're on
+		if cancel then
 			for card in all(grabbed_card) do
-				card.x = deck[i].x
-				card.y = deck[i].y
-				card.column = deck[i].column
-				card.row = deck[i].row
-
-				deck[i] = card
+				if grabbed_card_table == tables.slots then 
+					card_slots[i].card = card
+				elseif grabbed_card_table == tables.deck then 
+					deck[i] = card
+				end
 				i += max_column
+			end
+
+			-- go back to original position
+			update_sel(grabbed_card_idx,grabbed_card_table)
+		else
+			-- place grabbed cards at index
+			if sel.table == tables.slots then 
+				grabbed_card[1].x = card_slots[i].x
+				grabbed_card[1].y = card_slots[i].y
+				card_slots[i].card = grabbed_card[1]
+			elseif sel.table == tables.foundations then 
+				grabbed_card[1].x = foundation_slots[i].x
+				grabbed_card[1].y = foundation_slots[i].y
+				foundation_slots[i].card = grabbed_card[1]
+			elseif sel.table == tables.deck then
+				for card in all(grabbed_card) do
+					card.x = deck[i].x
+					card.y = deck[i].y
+					card.column = deck[i].column
+					card.row = deck[i].row
+
+					deck[i] = card
+					i += max_column
+				end
 			end
 		end
 
 		-- clear grabbed cards
         grabbed_card = nil
 		grabbed_card_idx = nil
-
-		-- cancel movement
-		update_sel(i-max_column,tables.deck)
+		grabbed_card_table = nil
     end
 end
