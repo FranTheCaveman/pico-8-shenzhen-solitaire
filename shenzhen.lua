@@ -16,6 +16,8 @@ function _init()
 	grabbed_card = nil
 
 	is_initial_autoplay_done = false
+	is_autoplaying = false
+	autoplay_requested = false
 
     max_column = 8
     max_row = 12
@@ -39,16 +41,8 @@ function _init()
 
     card_type = {
         empty = 74,
-        num = {
-            black = 1,
-            red = 3,
-            green = 5
-        },
-        dragon = {
-            black = 9,
-            red = 11,
-            green = 13
-        },
+        num = {1,3,5},
+        dragon = {9,11,13},
         flower = 7
     }
 
@@ -134,6 +128,7 @@ function _init()
 			sprite=dragon_sprites[i],
 			x=card_spacing,
 			y=card_slot_height,
+			is_active=false,
 			w=1,
 			h=1,
 		}
@@ -163,31 +158,32 @@ function _init()
 	-- create table for foundation slots
 	card_spacing += card_width+4
 	foundation_slots = {}
-		for i=1,3 do
-			slot = {
-				sprite=69,
+	for num_type in all(card_type.num) do
+		local slot = {
+			sprite=69,
+			x=card_spacing,
+			y=card_slot_height,
+			type = num_type,
+			card = {
+				val = 0,
+				type = card_type.empty,
 				x=card_spacing,
 				y=card_slot_height,
-				card = {
-					type = card_type.empty,
-					x=card_spacing,
-					y=card_slot_height,
-					w=2,
-					h=3,
-				},
 				w=2,
 				h=3,
-			}
-			add(foundation_slots,slot)
-			card_spacing += card_width+1
-		end
-		
-		sel={}
-		init_selection()
-		
-		t = 0 -- animation tick counter
-		f = 1 -- frame index
-		s = 16 -- frame speed
+			},
+			w=2,
+			h=3,
+		}
+		add(foundation_slots,slot)
+		card_spacing += card_width+1
+	end
+	
+	sel={}
+	
+	t = 0 -- animation tick counter
+	f = 1 -- frame index
+	s = 16 -- frame speed
 end
 
 function _update()
@@ -216,6 +212,7 @@ function _update()
 				-- place and clear grabbed cards
 				place_grabbed_cards(sel.idx)
 				sel.state = state.hover
+				autoplay_requested = true
 			end
 		end
 	end
@@ -235,77 +232,88 @@ function _update()
 	end
 	
 	-- move cursor
-	-- left
-	if btnp(⬅️) then 
-		local new_i = sel.idx-1
-		if sel.table == tables.deck and (sel.idx-1)%max_column ~= 0 then
-			if sel.state == state.hover then
-				local last_row = find_last_row_in_column(new_i)-max_column
-				update_sel(last_row,tables.deck)
-			elseif sel.state == state.move then
-				-- new_i needs to be last row in current column
-				local last_row = find_last_row_in_column(new_i)
-				update_sel(last_row,tables.deck)
+
+	if is_initial_autoplay_done and not is_autoplaying then
+		-- left
+		if btnp(⬅️) then 
+			local new_i = sel.idx-1
+			if sel.table == tables.deck and (sel.idx-1)%max_column ~= 0 then
+				if sel.state == state.hover then
+					local last_row = find_last_row_in_column(new_i)
+					update_sel(last_row,tables.deck)
+				elseif sel.state == state.move then
+					-- new_i needs to be last empty row in current column
+					local last_row = find_last_row_in_column(new_i) <= 8 and find_last_row_in_column(new_i) or find_last_row_in_column(new_i)+max_column
+					update_sel(last_row,tables.deck)
+				end
+			elseif sel.table == tables.slots and sel.idx>1 then
+				update_sel(new_i,tables.slots)
 			end
-		elseif sel.table == tables.slots and sel.idx>1 then
-			update_sel(new_i,tables.slots)
 		end
-	end
-	-- right
-	if btnp(➡️) then 
-		local new_i = sel.idx+1
-		if sel.table == tables.deck and (new_i)%max_column ~= 1 then
-			if sel.state == state.hover then
-				local last_row = find_last_row_in_column(new_i)-max_column
-				update_sel(last_row,tables.deck)
-			elseif sel.state == state.move then
-				-- new_i needs to be last row in current column
-				local last_row = find_last_row_in_column(new_i)
-				update_sel(last_row,tables.deck)
+		-- right
+		if btnp(➡️) then 
+			local new_i = sel.idx+1
+			if sel.table == tables.deck and (new_i)%max_column ~= 1 then
+				if sel.state == state.hover then
+					local last_row = find_last_row_in_column(new_i)
+					update_sel(last_row,tables.deck)
+				elseif sel.state == state.move then
+					-- new_i needs to be last empty row in current column
+					local last_row = find_last_row_in_column(new_i) <= 8 and find_last_row_in_column(new_i) or find_last_row_in_column(new_i)+max_column
+					update_sel(last_row,tables.deck)
+				end
+			elseif sel.table == tables.slots and (card_slots[new_i])~=nil then
+				update_sel(new_i,tables.slots)
 			end
-		elseif sel.table == tables.slots and (card_slots[new_i])~=nil then
-			update_sel(new_i,tables.slots)
 		end
-	end
-	-- up
-	if btnp(⬆️) then
-		-- traverse within deck
-		if sel.state == state.hover and sel.table == tables.deck then
-			if sel.idx > max_column then
-				local new_i = sel.idx-max_column
-				update_sel(new_i,tables.deck) 
-			else
+		-- up
+		if btnp(⬆️) then
+			-- traverse within deck
+			if sel.state == state.hover and sel.table == tables.deck then
+				if sel.idx > max_column then
+					local new_i = sel.idx-max_column
+					update_sel(new_i,tables.deck) 
+				else
+					sel.table = tables.slots
+					local new_i = 1
+					update_sel(new_i,tables.slots) 
+				end
+			end
+			-- if moving, up takes you straight to slots (if not holding stack of cards)
+			if sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
 				sel.table = tables.slots
 				local new_i = 1
 				update_sel(new_i,tables.slots) 
 			end
 		end
-		-- if moving, up takes you straight to slots (if not holding stack of cards)
-		if sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
-			sel.table = tables.slots
-			local new_i = 1
-			update_sel(new_i,tables.slots) 
-		end
-	end
-	-- down
-	if btnp(⬇️) then
-		if sel.table == tables.slots or sel.table == tables.dragons or sel.table == tables.foundations then
-			if sel.state == state.hover then
-				local new_i = find_last_row_in_column(1)
-				update_sel(new_i-max_column,tables.deck) 
-			elseif sel.state == state.move then
-				local new_i = find_last_row_in_column(1)
-				update_sel(new_i,tables.deck)
-			end 
-		elseif sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
-			local new_i = sel.idx+max_column
-			update_sel(new_i,tables.deck) 
+		-- down
+		if btnp(⬇️) then
+			if sel.table == tables.slots or sel.table == tables.dragons or sel.table == tables.foundations then
+				if sel.state == state.hover then
+					local new_i = find_last_row_in_column(sel.idx)
+					update_sel(new_i,tables.deck) 
+				elseif sel.state == state.move then
+					local new_i = find_last_row_in_column(sel.idx) <= 8 and find_last_row_in_column(sel.idx) or find_last_row_in_column(sel.idx)+max_column
+					update_sel(new_i,tables.deck)
+				end 
+			elseif sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
+				local new_i = sel.idx+max_column
+				update_sel(new_i,tables.deck) 
+			end
 		end
 	end
 
-	if is_initial_autoplay_done == false then 
-		autoplay_tables()
-		is_initial_autoplay_done = true
+	if not is_initial_autoplay_done and not is_autoplaying then
+		if not autoplay_tables() then
+			is_initial_autoplay_done = true
+			init_selection()
+		end
+	end
+
+	if autoplay_requested and not is_autoplaying then
+		if not autoplay_tables() then
+			autoplay_requested = false
+		end
 	end
 
 	if animating_card ~= nil then
@@ -317,9 +325,12 @@ function _update()
 			animating_card.x = animating_card_end_x
 			animating_card.y = animating_card_end_y
 
-			flower_slot.card = animating_card
-			animating_card = nil
+			animating_card_slot.card = animating_card
 
+			animating_card = nil
+			animating_card_slot = nil
+
+			is_autoplaying = false
 		else
 			animating_card.x = lerp(
 				animating_card_start_x,
@@ -343,21 +354,48 @@ end
 
 -- check if there is a card to go into the foundation or flower slots
 -- and move it automatically (animated)
+-- also checks if all dragons are exposed and activates corresponding buttons
 function autoplay_tables()
 	-- get lowest nonempty row of each column
 	local column = 1
 
-	while column <= max_column do
-		local i = find_last_row_in_column(column)-max_column
+	-- Next valid number to go in foundation slot is
+	-- the lowest number in the foundation slot + 1
+	local valid_num = foundation_slots[1].card.val
+	for slot in all(foundation_slots) do
+		if valid_num >= slot.card.val then
+			valid_num = slot.card.val
+		end
+	end
 
+	while column <= max_column do
+		local i = find_last_row_in_column(column)
+
+		-- check if flower is exposed
 		if deck[i].type == card_type.flower then
-			foundflower = true
+			is_autoplaying = true
 			start_card_animation(i, flower_slot)
-			break
+			return true
+		end
+
+		-- and if every slot is already filled with found number -1
+		if count(card_type.num, deck[i].type) > 0 then
+			for slot in all(foundation_slots) do
+				-- check if foundation slot suit matches the card suit
+				-- and deck card is higher by 1
+				if slot.type == deck[i].type and 
+				deck[i].val == valid_num+1 then 
+					is_autoplaying = true
+					start_card_animation(i, slot)
+					return true
+				end
+			end
 		end
 
 		column += 1
 	end
+
+	return false
 end
 
 function start_card_animation(i, slot)
@@ -379,14 +417,18 @@ function start_card_animation(i, slot)
 
     animating_card_t = 0
 
+	animating_card_slot = slot
+
     -- remove it from the deck logically
     deck[i].type = card_type.empty
+	deck[i].val = nil
 end
 
 function find_last_row_in_column(idx)
+	-- convert to column
     local new_i = ((idx - 1) % max_column) + 1
 
-    while deck[new_i] ~= nil and deck[new_i].type ~= card_type.empty do
+    while deck[new_i+max_column] ~= nil and deck[new_i+max_column].type ~= card_type.empty do
         new_i += max_column
     end
 
@@ -399,7 +441,9 @@ function check_grabbable()
 	local next_card = sel.idx + max_column
 	local curr_card = sel.idx
 
-	if sel.table == tables.slots and sel.card.type ~= card_type.empty then return true
+	if sel.card.type == card_type.empty then return false
+
+	elseif sel.table == tables.slots then return true
 	
 	elseif sel.table == tables.deck then
 		-- grabbable if next row's slot is empty
@@ -429,7 +473,8 @@ end
 
 -- check if grabbed cards can be placed on the selected slot
 function check_placeable() 
-	if sel.table == tables.slots and sel.card.type == card_type.empty then 
+	if (sel.table == tables.slots and sel.card.type == card_type.empty) or 
+	(sel.table == tables.deck and sel.card.type == card_type.empty and sel.idx <= max_column) then 
 		return true
 	elseif sel.table == tables.deck then
 		local prev_card = sel.idx - max_column
@@ -479,10 +524,19 @@ function _draw()
 		-- draw card
 		spr(flower_slot.card.type,flower_slot.card.x,flower_slot.card.y,flower_slot.card.w,flower_slot.card.h)
 	end
-	
+
 	-- draw foundation slots
 	for slot in all(foundation_slots) do
 		spr(slot.sprite,slot.x,slot.y,slot.w,slot.h)
+		if slot.card.type ~= card_type.empty then 
+			-- draw card
+			spr(slot.card.type,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
+
+			-- draw number
+			if type(slot.card.val) == "number" then
+				print(slot.card.val,slot.card.x+2,slot.card.y+2,slot.card.col)
+			end
+		end
 	end
 	
 	-- draw deck
@@ -530,7 +584,7 @@ function _draw()
 --		y += 8 
 --	end
 	-- draw selection
-	spr(sel.sprite,sel.x,sel.y)
+	if is_initial_autoplay_done and not is_autoplaying then spr(sel.sprite,sel.x,sel.y) end
 
 	if foundflower then print("found flower",45,100,1) end
 
@@ -638,7 +692,7 @@ end
 function init_selection()
 	-- defaults to selecting 
 	-- first card in front row
-	local idx = (max_column*4)+1
+	local idx = find_last_row_in_column(1)
 	local front_card = deck[idx]
 	front_card.idx = idx
 	
