@@ -2,12 +2,8 @@ pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
 function _init()
-	animating_card = nil
-	animating_card_start_x = 0
-	animating_card_start_y = 0
-	animating_card_end_x = 0
-	animating_card_end_y = 0
-	animating_card_t = 0
+	animating_cards = {}
+	animating_card_slot = {}
 
 	init_deck={}
 	free_slots = {}
@@ -208,7 +204,7 @@ function _update()
 			end
 		end
 	end
-	
+
 	-- x to toggle move/hover
 	if btnp(❎) then
 		if sel.state == state.hover then
@@ -407,33 +403,47 @@ function _update()
 		end
 	end
 
-	if animating_card ~= nil then
-		animating_card_t += 0.08
+	if #animating_cards > 0 then
+		for card in all(animating_cards) do
+			card.t += 0.08
+			if card.t >= 1 then
+				card.t = 1
+				card.x = card.end_x
+				card.y = card.end_y
+			else
+				card.x = lerp(
+					card.start_x,
+					card.end_x,
+					card.t
+				)
+				card.y = lerp(
+					card.start_y,
+					card.end_y,
+					card.t
+				)
+			end
+		end
 
-		if animating_card_t >= 1 then
-			animating_card_t = 1
+		-- check if all animations are finished
+		local finished = true
 
-			animating_card.x = animating_card_end_x
-			animating_card.y = animating_card_end_y
+		for card in all(animating_cards) do
+			if card.t < 1 then
+				finished = false
+			end
+		end
 
-			animating_card_slot.card = animating_card
+		if finished then
+			-- put the final card into the destination
+			local last = animating_cards[#animating_cards]
 
-			animating_card = nil
+			last.x = last.end_x
+			last.y = last.end_y
+
+			animating_card_slot.card = last
+			animating_cards = {}
 			animating_card_slot = nil
-
 			is_autoplaying = false
-		else
-			animating_card.x = lerp(
-				animating_card_start_x,
-				animating_card_end_x,
-				animating_card_t
-			)
-
-			animating_card.y = lerp(
-				animating_card_start_y,
-				animating_card_end_y,
-				animating_card_t
-			)
 		end
 	end
 end
@@ -561,49 +571,49 @@ function check_exposed_dragons()
     end
 end
 
-function start_card_animation(i, slot, og_table)
-	animating_card_end_x = slot.x
-    animating_card_end_y = slot.y
-
-    animating_card_t = 0
+function start_card_animation(i,slot,og_table)
+    local card
 
 	animating_card_slot = slot
-	
-	if og_table == nil or og_table == tables.deck then
-		animating_card = {
-			val = deck[i].val,
-			type = deck[i].type,
-			col = deck[i].col,
-			x = deck[i].x,
-			y = deck[i].y,
-			w = deck[i].w,
-			h = deck[i].h
-		}
 
-		animating_card_start_x = deck[i].x
-		animating_card_start_y = deck[i].y
+    if og_table == nil or og_table == tables.deck then
+        card = {
+            val = deck[i].val,
+            type = deck[i].type,
+            col = deck[i].col,
+            x = deck[i].x,
+            y = deck[i].y,
+            start_x = deck[i].x,
+            start_y = deck[i].y,
+            end_x = slot.x,
+            end_y = slot.y,
+            w = deck[i].w,
+            h = deck[i].h,
+            t = 0
+        }
 
-		-- remove it from the card slot
-		deck[i].type = card_type.empty
-		deck[i].val = nil
-	elseif og_table == tables.slots then
-		animating_card = {
-			val = card_slots[i].card.val,
-			type = card_slots[i].card.type,
-			col = card_slots[i].card.col,
-			x = card_slots[i].card.x,
-			y = card_slots[i].card.y,
-			w = card_slots[i].card.w,
-			h = card_slots[i].card.h
-		}
+        deck[i].type = card_type.empty
+        deck[i].val = nil
 
-		animating_card_start_x = card_slots[i].card.x
-		animating_card_start_y = card_slots[i].card.y
-
-		-- remove it from the deck
-		card_slots[i].card.type = card_type.empty
-		card_slots[i].card.val = nil
-	end
+    elseif og_table == tables.slots then
+        card = {
+            val = card_slots[i].card.val,
+            type = card_slots[i].card.type,
+            col = card_slots[i].card.col,
+            x = card_slots[i].card.x,
+            y = card_slots[i].card.y,
+            start_x = card_slots[i].card.x,
+            start_y = card_slots[i].card.y,
+            end_x = slot.x,
+            end_y = slot.y,
+            w = card_slots[i].card.w,
+            h = card_slots[i].card.h,
+            t = 0
+        }
+        card_slots[i].card.type = card_type.empty
+        card_slots[i].card.val = nil
+    end
+    add(animating_cards,card)
 end
 
 function find_last_row_in_column(idx)
@@ -716,8 +726,16 @@ function _draw()
 	
 	-- draw dragon buttons
 	for button in all(dragon_buttons) do
-		if button.is_active then spr(button.active_sprite,button.x,button.y,button.w,button.h)
-		else spr(button.sprite,button.x,button.y,button.w,button.h) end
+		if button.is_active then
+			-- animate button if active
+			if f then
+				spr(button.active_sprite,button.x,button.y,button.w,button.h)
+			else
+				spr(button.sprite,button.x,button.y,button.w,button.h)
+			end
+		else
+			spr(button.sprite,button.x,button.y,button.w,button.h)
+		end
 	end
 	
 	-- draw flower slot
@@ -795,22 +813,24 @@ function _draw()
 	-- draw selection
 	if is_initial_autoplay_done and not is_autoplaying then spr(sel.sprite,sel.x,sel.y) end
 
-	if animating_card ~= nil then
-		spr(
-			animating_card.type,
-			animating_card.x,
-			animating_card.y,
-			animating_card.w,
-			animating_card.h
-		)
-
-		if type(animating_card.val) == "number" then
-			print(
-				animating_card.val,
-				animating_card.x + 2,
-				animating_card.y + 2,
-				animating_card.col
+	if #animating_cards > 0 then
+		for card in all(animating_cards) do
+			spr(
+				card.type,
+				card.x,
+				card.y,
+				card.w,
+				card.h
 			)
+
+			if type(card.val) == "number" then
+				print(
+					card.val,
+					card.x + 2,
+					card.y + 2,
+					card.col
+				)
+			end
 		end
 	end
 end
