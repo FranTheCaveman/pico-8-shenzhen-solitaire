@@ -2,6 +2,10 @@ pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
 function _init()
+	cartdata("shenzhensolitaire_1")
+
+	win_count = dget(0)
+
 	animating_cards = {}
 	animating_card_slot = {}
 
@@ -14,6 +18,7 @@ function _init()
 	is_initial_autoplay_done = false
 	is_autoplaying = false
 	autoplay_requested = false
+	increment_score = false
 
     max_column = 8
     max_row = 12
@@ -32,7 +37,8 @@ function _init()
 		deck = 1,
 		slots = 2,
 		foundations = 3,
-		dragons = 4
+		dragons = 4,
+		new_game,
 	}
 
     card_type = {
@@ -42,6 +48,15 @@ function _init()
         flower = 7,
 		inactive_dragon = 132,
     }
+
+	new_game_button = {
+		is_selected = false,
+		was_pressed = false,
+		x=89,
+		y=117,
+		w=4,
+		h=1,
+	}
 
 	active_dragon_buttons = {72,88,104}
 
@@ -76,7 +91,6 @@ function _init()
 				val = "dragon",
 				type = dragon.sprite,
 				col = dragon.col,
-				is_active = true,
 			}
 			add(init_deck,card)
 		end
@@ -121,17 +135,20 @@ function _init()
 	
 	-- create table for dragon buttons
 	dragon_buttons = {}
-	dragon_sprites = {66,82,98}
+	local dragon_sprites = {66,82,98}
+	local disabled_sprites = {73,89,105}
 	card_spacing += 2
 	
 	for i=1,#dragon_sprites do
 		dragon = {
 			sprite=dragon_sprites[i],
 			active_sprite=active_dragon_buttons[i],
+			disabled_sprite=disabled_sprites[i],
 			type=card_type.dragon[i],
 			x=card_spacing,
 			y=card_slot_height,
 			is_active=false,
+			was_pressed = false,
 			w=1,
 			h=1,
 		}
@@ -189,6 +206,14 @@ function _init()
 	s = 16 -- frame speed
 end
 
+function check_game_won()
+	local i = 1
+	for card in all(deck) do
+		if card.type ~= card_type.empty then return false end
+	end
+	return true
+end
+
 function _update()
 	-- animate idle cursor
 	if sel.state == state.hover then
@@ -214,6 +239,8 @@ function _update()
 			elseif sel.table == tables.dragons and sel.card.is_active then
 				local dest_slot = nil
 				local empty_slot = nil
+
+				dragon_buttons[sel.idx].was_pressed = true
 
 				-- find destination
 				local slot_i = 1
@@ -253,7 +280,10 @@ function _update()
 				end
 				dest_slot.is_active = false
 				autoplay_requested = true
+			elseif sel.table == tables.new_game then
+				_init()
 			end
+
 		elseif sel.state == state.move then 
 			if check_placeable() == true then
 				-- place and clear grabbed cards
@@ -269,6 +299,9 @@ function _update()
 			sel.state = state.hover
 			-- return cards to original position
 			place_grabbed_cards(grabbed_card_idx, true)
+		-- jump to menu if hovering
+		elseif sel.state == state.hover then
+			update_sel(1,tables.new_game)
 		end
 	end
 	
@@ -278,8 +311,14 @@ function _update()
 		sel.sprite = 87
 	end
 	
-	-- move cursor
+	if sel.table == tables.new_game then 
+		new_game_button.is_selected = true
+	else 
+		new_game_button.is_selected = false
+	end
 
+	-- move cursor
+		-- TODO: simplify movement code and de-duplicate with helper functions 
 	if is_initial_autoplay_done and not is_autoplaying then
 		-- left
 		if btnp(⬅️) then 
@@ -342,10 +381,8 @@ function _update()
 				if sel.idx > max_column then
 					local new_i = sel.idx-max_column
 					update_sel(new_i,tables.deck) 
-				elseif sel.idx ~= 4 then
-					sel.table = tables.slots
-					local new_i = 3
-					if sel.idx <= 3 then new_i = sel.idx end
+				elseif sel.idx <= 3 then
+					local new_i = sel.idx
 					update_sel(new_i,tables.slots)
 				else
 					update_sel(#dragon_buttons,tables.dragons)
@@ -355,23 +392,46 @@ function _update()
 				update_sel(new_i,tables.dragons)
 			-- if moving, up takes you straight to slots (if not holding stack of cards)
 			elseif sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
-				sel.table = tables.slots
-				local new_i = 3
-				local col = sel.idx%max_column
-				if col <= 3 and col > 0 then new_i = col end
-				update_sel(new_i,tables.slots) 
+				local col = ((sel.idx-1)%max_column)+1
+				local new_i = col
+				if col <= 4 and col ~= 0 then 
+					if col == 4 then new_i = 3 end
+					update_sel(new_i,tables.slots) 
+				elseif col >= 5 then
+					if col == 5 then new_i = 1
+					else new_i = col-5 end
+					update_sel(new_i,tables.foundations)
+				end
+			-- move up to deck if hovering over new game
+			elseif sel.table == tables.new_game then
+				local new_i = find_last_row_in_column(1)
+				update_sel(new_i,tables.deck) 
 			end
 		end
 		-- down
 		if btnp(⬇️) then
 			if sel.table == tables.slots or sel.table == tables.foundations then
 				if sel.state == state.hover then
-					local new_i = find_last_row_in_column(sel.idx)
-					update_sel(new_i,tables.deck) 
+					if sel.table == tables.slots then 
+						local new_i = find_last_row_in_column(sel.idx)
+						update_sel(new_i,tables.deck) 
+					else
+						local col = ((sel.idx-1)%max_column)+1
+						local last_row = find_last_row_in_column(col+5)
+						if deck[last_row].type ~= card_type.empty then last_row += max_column end 
+						update_sel(last_row,tables.deck)
+					end
 				elseif sel.state == state.move then
-					local last_row = find_last_row_in_column(sel.idx)
-					if deck[last_row].type ~= card_type.empty then last_row += max_column end 
-					update_sel(last_row,tables.deck)
+					if sel.table == tables.slots then 
+						local last_row = find_last_row_in_column(sel.idx)
+						if deck[last_row].type ~= card_type.empty then last_row += max_column end 
+						update_sel(last_row,tables.deck)
+					else
+						local col = ((sel.idx-1)%max_column)+1
+						local last_row = find_last_row_in_column(col+5)
+						if deck[last_row].type ~= card_type.empty then last_row += max_column end 
+						update_sel(last_row,tables.deck)
+					end
 				end 
 			elseif sel.table == tables.dragons then 
 				if dragon_buttons[sel.idx+1] ~= nil then
@@ -381,9 +441,13 @@ function _update()
 					local new_i = find_last_row_in_column(4)
 					update_sel(new_i,tables.deck) 
 				end
-			elseif sel.table == tables.deck and sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
-				local new_i = sel.idx+max_column
-				update_sel(new_i,tables.deck) 
+			elseif sel.table == tables.deck and sel.state == state.hover then
+				if (deck[sel.idx+max_column].type ~= card_type.empty) then
+					local new_i = sel.idx+max_column
+					update_sel(new_i,tables.deck)
+				-- else
+				-- 	update_sel(1,tables.new_game_button)
+				end
 			end
 		end
 	end
@@ -444,6 +508,19 @@ function _update()
 			animating_cards = {}
 			animating_card_slot = nil
 			is_autoplaying = false
+
+			if sel.table == tables.deck then 
+				update_sel(find_last_row_in_column(sel.idx),tables.deck) 
+			end
+		end
+	end
+
+	-- Increment persistent win_count by 1 if game is won 
+	if increment_score == false then 
+		if check_game_won() then
+			win_count += 1
+			dset(0, win_count)
+			increment_score = true
 		end
 	end
 end
@@ -633,10 +710,6 @@ end
 
 -- check if column to grab is alternating colours and descending in number by 1
 function check_grabbable()
-	local is_grabbable = false
-	local next_card = sel.idx + max_column
-	local curr_card = sel.idx
-
 	if sel.card.type == card_type.empty then return false
 
 	elseif sel.table == tables.slots then 
@@ -647,28 +720,36 @@ function check_grabbable()
 		end
 		
 	elseif sel.table == tables.deck then
+		-- next row below selected card
+		local next_card = sel.idx + max_column
+		local curr_card = sel.idx
+
 		-- grabbable if next row's slot is empty
 		if deck[next_card].type == card_type.empty then return true
-		-- not grabbable if current card isnt a number
-		elseif type(deck[curr_card].val) ~= "number" then return false
 
-		else
-			-- check if next card: is a number, a different suit, and is less than current card by 1
-			while deck[next_card].type ~= card_type.empty do
-				if type(deck[next_card].val) == "number" and 
-				deck[next_card].type ~= deck[curr_card].type and 
-				deck[next_card].val == deck[curr_card].val-1 then
-					is_grabbable = true
-				else
-					is_grabbable = false
-				end
-
-				-- move down one card
-				curr_card = next_card
-				next_card += max_column
-			end
+		-- selected card must be a number
+		elseif type(deck[curr_card].val) ~= "number" then
+			return false
 		end
-		return is_grabbable
+
+		-- check every card beneath it
+		while deck[next_card].type ~= card_type.empty do
+
+			-- every card in the stack must:
+			-- 1. be a number
+			-- 2. be a different suit
+			-- 3. be exactly 1 lower
+			if type(deck[next_card].val) ~= "number" or
+			deck[next_card].type == deck[curr_card].type or
+			deck[next_card].val ~= deck[curr_card].val - 1 then
+				return false
+			end
+
+			curr_card = next_card
+			next_card += max_column
+		end
+
+		return true
 	end
 end
 
@@ -726,7 +807,9 @@ function _draw()
 	
 	-- draw dragon buttons
 	for button in all(dragon_buttons) do
-		if button.is_active then
+		if button.was_pressed then
+			spr(button.disabled_sprite,button.x,button.y,button.w,button.h)
+		elseif button.is_active then
 			-- animate button if active
 			if f then
 				spr(button.active_sprite,button.x,button.y,button.w,button.h)
@@ -797,42 +880,34 @@ function _draw()
 	rectfill(126,0,127,127,1)
 	
 	-- new game button
-	rectfill(89,117,125,125,6)
-	-- rect(89,117,125,117,8)
-	print("new game",92,119,1)
+	draw_new_game_button(new_game_button.is_selected)
 	
 	-- score counter
-	print("win count:000",2,119,6)
-	
-	-- print randomized deck
---	local y = 4
---	for card in all(deck) do
---		print("n:"..card[1]..", s:"..card[2], 4, y, 7)
---		y += 8 
---	end
+	print("win count:"..win_count,2,119,6)
+
 	-- draw selection
-	if is_initial_autoplay_done and not is_autoplaying then spr(sel.sprite,sel.x,sel.y) end
+	if is_initial_autoplay_done then spr(sel.sprite,sel.x,sel.y) end
 
 	if #animating_cards > 0 then
 		for card in all(animating_cards) do
-			spr(
-				card.type,
-				card.x,
-				card.y,
-				card.w,
-				card.h
-			)
+			spr(card.type,card.x,card.y,card.w,card.h)
 
 			if type(card.val) == "number" then
-				print(
-					card.val,
-					card.x + 2,
-					card.y + 2,
-					card.col
-				)
+				print(card.val,card.x + 2,card.y + 2,card.col)
 			end
 		end
 	end
+
+	-- you win! screen
+	-- rectfill(0,50,127,80,1)
+	-- rect(-1,52,128,78,8)
+	-- print("you win !",48,64,6)
+end
+
+function draw_new_game_button(is_selected)
+	if is_selected then rectfill(89,117,125,125,7) 
+	else rectfill(89,117,125,125,6) end
+	print("new game",92,119,1)
 end
 
 function randomise_deck(deck)
@@ -946,6 +1021,8 @@ function update_sel(i,table)
 		new = dragon_buttons[i]
 	elseif table == tables.foundations then
 		new = foundation_slots[i].card
+	elseif table == tables.new_game then
+		new = new_game_button
 	end
 
 	local st = sel.state
