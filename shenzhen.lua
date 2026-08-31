@@ -2,8 +2,6 @@ pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
 function _init()
-	foundflower = false
-
 	animating_card = nil
 	animating_card_start_x = 0
 	animating_card_start_y = 0
@@ -45,15 +43,16 @@ function _init()
         empty = 128,
         num = {1,3,5},
         dragon = {11,13,9},
-        flower = 7
+        flower = 7,
+		inactive_dragon = 132,
     }
 
 	active_dragon_buttons = {72,88,104}
 
     local dragons = {
-        {sprite = 11, col = 8, inactive = 75},
-        {sprite = 13,  col = 3, inactive = 77},
-        {sprite = 9, col = 1, inactive = 73},
+        {sprite = 11, col = 8},
+        {sprite = 13,  col = 3},
+        {sprite = 9, col = 1},
     }
 
     local suits = {
@@ -80,7 +79,6 @@ function _init()
 			local card = {
 				val = "dragon",
 				type = dragon.sprite,
-				inactive_sprite = dragon.inactive,
 				col = dragon.col,
 				is_active = true,
 			}
@@ -112,7 +110,6 @@ function _init()
 			y=card_slot_height,
 			card = {
 				type = card_type.empty,
-				inactive_sprite = card_type.empty,
 				x=card_spacing,
 				y=card_slot_height,
 				w=2,
@@ -219,8 +216,6 @@ function _update()
 				sel.state = state.move
 				set_grabbed_cards()
 			elseif sel.table == tables.dragons and sel.card.is_active then
-				foundflower = true
-
 				local dest_slot = nil
 				local empty_slot = nil
 
@@ -577,7 +572,6 @@ function start_card_animation(i, slot, og_table)
 	if og_table == nil or og_table == tables.deck then
 		animating_card = {
 			val = deck[i].val,
-			inactive_sprite = deck[i].inactive_sprite,
 			type = deck[i].type,
 			col = deck[i].col,
 			x = deck[i].x,
@@ -595,7 +589,6 @@ function start_card_animation(i, slot, og_table)
 	elseif og_table == tables.slots then
 		animating_card = {
 			val = card_slots[i].card.val,
-			inactive_sprite = card_slots[i].card.inactive_sprite,
 			type = card_slots[i].card.type,
 			col = card_slots[i].card.col,
 			x = card_slots[i].card.x,
@@ -709,7 +702,7 @@ function _draw()
 		if slot.card.val ~= nil then 
 			-- draw inactive dragons 
 			if slot.is_active ~= nil and slot.is_active == false then 
-				spr(slot.card.inactive_sprite,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
+				spr(card_type.inactive_dragon,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
 			else
 				-- draw card
 				spr(slot.card.type,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
@@ -749,7 +742,14 @@ function _draw()
 	end
 	
 	-- draw deck
+	local i = 1
 	for card in all(deck) do
+		if i <= 8 then
+			-- draw empty slots beneath for first row
+			spr(130,card.x,card.y,card.w,card.h)
+			i+=1
+		end
+
 		-- draw card
 		spr(card.type,card.x,card.y,card.w,card.h)
 		
@@ -794,8 +794,6 @@ function _draw()
 --	end
 	-- draw selection
 	if is_initial_autoplay_done and not is_autoplaying then spr(sel.sprite,sel.x,sel.y) end
-
-	if foundflower then print("found flower",45,100,1) end
 
 	if animating_card ~= nil then
 		spr(
@@ -978,7 +976,6 @@ function set_grabbed_cards()
 				grabbed_card[gc_i].row = deck[dc_i].row
 				grabbed_card[gc_i].w = deck[dc_i].w
 				grabbed_card[gc_i].h = deck[dc_i].h
-				grabbed_card[gc_i].inactive_sprite = deck[dc_i].inactive_sprite
 
 				-- set selected card from deck to empty
 				set_empty_card(dc_i)
@@ -1007,7 +1004,6 @@ function set_grabbed_cards()
 			grabbed_card[gc_i].row = card_slots[sc_i].card.row
 			grabbed_card[gc_i].w = card_slots[sc_i].card.w
 			grabbed_card[gc_i].h = card_slots[sc_i].card.h
-			grabbed_card[gc_i].inactive_sprite = card_slots[sc_i].card.inactive_sprite
 
 			-- set selected card from slot to empty
 			set_empty_card(sc_i)
