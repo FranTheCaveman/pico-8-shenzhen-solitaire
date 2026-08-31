@@ -12,6 +12,7 @@ function _init()
 	animating_card_t = 0
 
 	init_deck={}
+	free_slots = {}
 	
 	grabbed_card = nil
 	grabbed_card_table = nil
@@ -41,16 +42,18 @@ function _init()
 	}
 
     card_type = {
-        empty = 74,
+        empty = 128,
         num = {1,3,5},
-        dragon = {9,11,13},
+        dragon = {11,13,9},
         flower = 7
     }
 
+	active_dragon_buttons = {72,88,104}
+
     local dragons = {
-        {sprite = 11, col = 8},
-        {sprite = 9,  col = 1},
-        {sprite = 13, col = 3},
+        {sprite = 11, col = 8, inactive = 75},
+        {sprite = 13,  col = 3, inactive = 77},
+        {sprite = 9, col = 1, inactive = 73},
     }
 
     local suits = {
@@ -72,12 +75,14 @@ function _init()
         end
     end
 	-- add dragons
-	for dragon in all (dragons) do
+	for dragon in all(dragons) do
 		for num=1,4 do
 			local card = {
 				val = "dragon",
 				type = dragon.sprite,
+				inactive_sprite = dragon.inactive,
 				col = dragon.col,
+				is_active = true,
 			}
 			add(init_deck,card)
 		end
@@ -107,6 +112,7 @@ function _init()
 			y=card_slot_height,
 			card = {
 				type = card_type.empty,
+				inactive_sprite = card_type.empty,
 				x=card_spacing,
 				y=card_slot_height,
 				w=2,
@@ -114,6 +120,7 @@ function _init()
 			},
 			w=2,
 			h=3,
+			is_active = true,
 		}
 		add(card_slots,slot)
 		card_spacing += card_width+1
@@ -127,6 +134,8 @@ function _init()
 	for i=1,#dragon_sprites do
 		dragon = {
 			sprite=dragon_sprites[i],
+			active_sprite=active_dragon_buttons[i],
+			type=card_type.dragon[i],
 			x=card_spacing,
 			y=card_slot_height,
 			is_active=false,
@@ -205,9 +214,55 @@ function _update()
 	
 	-- x to toggle move/hover
 	if btnp(❎) then
-		if sel.state == state.hover and check_grabbable() then
-			sel.state = state.move
-			set_grabbed_cards()
+		if sel.state == state.hover then
+			if check_grabbable() then
+				sel.state = state.move
+				set_grabbed_cards()
+			elseif sel.table == tables.dragons and sel.card.is_active then
+				foundflower = true
+
+				local dest_slot = nil
+				local empty_slot = nil
+
+				-- find destination
+				local slot_i = 1
+				for slot in all(card_slots) do
+					-- matching slot takes priority
+					if slot.card.type == sel.card.type then
+						dest_slot = slot
+						break
+
+					-- remember first empty slot
+					elseif slot.card.type == card_type.empty
+					and empty_slot == nil then
+						empty_slot = slot
+					end
+
+					slot_i += 1
+				end
+
+				-- no matching slot, so use empty slot
+				if dest_slot == nil then dest_slot = empty_slot end
+
+				if dest_slot ~= nil then
+					for id in all(idx_dragons_in_deck) do
+						if deck[id].type == sel.card.type then
+							is_autoplaying = true
+							start_card_animation(id,dest_slot,tables.deck)
+						end
+					end
+
+					for is in all(idx_dragons_in_slots) do
+						if card_slots[is] ~= dest_slot
+						and card_slots[is].card.type == sel.card.type then
+							is_autoplaying = true
+							start_card_animation(is,dest_slot,tables.slots)
+						end
+					end
+				end
+				dest_slot.is_active = false
+				autoplay_requested = true
+			end
 		elseif sel.state == state.move then 
 			if check_placeable() == true then
 				-- place and clear grabbed cards
@@ -250,6 +305,8 @@ function _update()
 				end
 			elseif sel.table == tables.slots and sel.idx>1 then
 				update_sel(new_i,tables.slots)
+			elseif sel.table == tables.dragons then
+				update_sel(#card_slots,tables.slots)
 			elseif sel.table == tables.foundations then 
 				if sel.idx>1 then 
 					update_sel(new_i,tables.foundations)
@@ -274,6 +331,9 @@ function _update()
 			elseif sel.table == tables.slots then
 				if (card_slots[new_i])~=nil then
 					update_sel(new_i,tables.slots)
+				-- can only navigate to dragon buttons if hovering
+				elseif sel.state == state.hover and (card_slots[new_i])==nil then
+					update_sel(1,tables.dragons)
 				-- can only navigate to foundation slots if moving a card
 				elseif sel.state == state.move and (card_slots[new_i])==nil then
 					update_sel(1,tables.foundations)
@@ -291,30 +351,46 @@ function _update()
 				if sel.idx > max_column then
 					local new_i = sel.idx-max_column
 					update_sel(new_i,tables.deck) 
-				else
+				elseif sel.idx ~= 4 then
 					sel.table = tables.slots
-					local new_i = 1
-					update_sel(new_i,tables.slots) 
+					local new_i = 3
+					if sel.idx <= 3 then new_i = sel.idx end
+					update_sel(new_i,tables.slots)
+				else
+					update_sel(#dragon_buttons,tables.dragons)
 				end
-			end
+			elseif sel.table == tables.dragons and sel.idx-1 >= 1 then
+				local new_i = sel.idx-1
+				update_sel(new_i,tables.dragons)
 			-- if moving, up takes you straight to slots (if not holding stack of cards)
-			if sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
+			elseif sel.state == state.move and sel.table == tables.deck and #grabbed_card == 1 then
 				sel.table = tables.slots
-				local new_i = 1
+				local new_i = 3
+				local col = sel.idx%max_column
+				if col <= 3 and col > 0 then new_i = col end
 				update_sel(new_i,tables.slots) 
 			end
 		end
 		-- down
 		if btnp(⬇️) then
-			if sel.table == tables.slots or sel.table == tables.dragons or sel.table == tables.foundations then
+			if sel.table == tables.slots or sel.table == tables.foundations then
 				if sel.state == state.hover then
 					local new_i = find_last_row_in_column(sel.idx)
 					update_sel(new_i,tables.deck) 
 				elseif sel.state == state.move then
-					local new_i = find_last_row_in_column(sel.idx) <= 8 and find_last_row_in_column(sel.idx) or find_last_row_in_column(sel.idx)+max_column
-					update_sel(new_i,tables.deck)
+					local last_row = find_last_row_in_column(sel.idx)
+					if deck[last_row].type ~= card_type.empty then last_row += max_column end 
+					update_sel(last_row,tables.deck)
 				end 
-			elseif sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
+			elseif sel.table == tables.dragons then 
+				if dragon_buttons[sel.idx+1] ~= nil then
+					local new_i = sel.idx+1
+					update_sel(new_i,tables.dragons)
+				else
+					local new_i = find_last_row_in_column(4)
+					update_sel(new_i,tables.deck) 
+				end
+			elseif sel.table == tables.deck and sel.state == state.hover and (deck[sel.idx+max_column].type ~= card_type.empty) then
 				local new_i = sel.idx+max_column
 				update_sel(new_i,tables.deck) 
 			end
@@ -324,12 +400,14 @@ function _update()
 	if not is_initial_autoplay_done and not is_autoplaying then
 		if not autoplay_tables() then
 			is_initial_autoplay_done = true
+			check_exposed_dragons()
 			init_selection()
 		end
 	end
 
 	if autoplay_requested and not is_autoplaying then
 		if not autoplay_tables() then
+			check_exposed_dragons()
 			autoplay_requested = false
 		end
 	end
@@ -386,6 +464,23 @@ function autoplay_tables()
 		end
 	end
 
+	-- check if a card in card slots is valid to go in foundations
+	local i = 1
+	for s in all(card_slots) do
+		local card = s.card
+		for slot in all(foundation_slots) do
+			-- check if foundation slot suit matches the card suit
+			-- and deck card is higher by 1
+			if slot.type == card.type and 
+			card.val == valid_num+1 then 
+				is_autoplaying = true
+				start_card_animation(i, slot, tables.slots)
+				return true
+			end
+		end
+		i += 1
+	end
+
 	while column <= max_column do
 		local i = find_last_row_in_column(column)
 
@@ -416,30 +511,106 @@ function autoplay_tables()
 	return false
 end
 
-function start_card_animation(i, slot)
-    animating_card = {
-        val = deck[i].val,
-        type = deck[i].type,
-        col = deck[i].col,
-        x = deck[i].x,
-        y = deck[i].y,
-        w = deck[i].w,
-        h = deck[i].h
-    }
+function check_exposed_dragons()
+    local exposed_deck_cards = {}
+    local dragons_in_slots = {}
 
-    animating_card_start_x = deck[i].x
-    animating_card_start_y = deck[i].y
+    idx_dragons_in_deck = {}
+    idx_dragons_in_slots = {}
+    free_slots = {}
 
-    animating_card_end_x = slot.x
+    local column = 1
+
+    -- find exposed cards in each deck column
+    while column <= max_column do
+        local i = find_last_row_in_column(column)
+
+        add(exposed_deck_cards, deck[i].type)
+
+        if deck[i].type == card_type.dragon[1] or
+        deck[i].type == card_type.dragon[2] or
+        deck[i].type == card_type.dragon[3] then
+            add(idx_dragons_in_deck, i)
+        end
+
+        column += 1
+    end
+
+    -- find dragons and empty slots
+    local i = 1
+
+    for slot in all(card_slots) do
+        if slot.card.type == card_type.dragon[1] or
+        slot.card.type == card_type.dragon[2] or
+        slot.card.type == card_type.dragon[3] then
+            add(dragons_in_slots, slot.card.type)
+            add(idx_dragons_in_slots, i)
+        elseif slot.card.type == card_type.empty then
+            add(free_slots, slot)
+        end
+
+        i += 1
+    end
+
+    -- activate dragon buttons
+    for button in all(dragon_buttons) do
+        local total_exposed_cards = count(exposed_deck_cards, button.type)
+        local total_dragons_in_slots = count(dragons_in_slots, button.type)
+
+        if (total_dragons_in_slots > 0 and total_exposed_cards + total_dragons_in_slots == 4) or
+    	(total_exposed_cards == 4 and count(free_slots) > 0) then
+            button.is_active = true
+        else
+            button.is_active = false
+        end
+    end
+end
+
+function start_card_animation(i, slot, og_table)
+	animating_card_end_x = slot.x
     animating_card_end_y = slot.y
 
     animating_card_t = 0
 
 	animating_card_slot = slot
+	
+	if og_table == nil or og_table == tables.deck then
+		animating_card = {
+			val = deck[i].val,
+			inactive_sprite = deck[i].inactive_sprite,
+			type = deck[i].type,
+			col = deck[i].col,
+			x = deck[i].x,
+			y = deck[i].y,
+			w = deck[i].w,
+			h = deck[i].h
+		}
 
-    -- remove it from the deck logically
-    deck[i].type = card_type.empty
-	deck[i].val = nil
+		animating_card_start_x = deck[i].x
+		animating_card_start_y = deck[i].y
+
+		-- remove it from the card slot
+		deck[i].type = card_type.empty
+		deck[i].val = nil
+	elseif og_table == tables.slots then
+		animating_card = {
+			val = card_slots[i].card.val,
+			inactive_sprite = card_slots[i].card.inactive_sprite,
+			type = card_slots[i].card.type,
+			col = card_slots[i].card.col,
+			x = card_slots[i].card.x,
+			y = card_slots[i].card.y,
+			w = card_slots[i].card.w,
+			h = card_slots[i].card.h
+		}
+
+		animating_card_start_x = card_slots[i].card.x
+		animating_card_start_y = card_slots[i].card.y
+
+		-- remove it from the deck
+		card_slots[i].card.type = card_type.empty
+		card_slots[i].card.val = nil
+	end
 end
 
 function find_last_row_in_column(idx)
@@ -465,8 +636,13 @@ function check_grabbable()
 
 	if sel.card.type == card_type.empty then return false
 
-	elseif sel.table == tables.slots then return true
-	
+	elseif sel.table == tables.slots then 
+		if card_slots[sel.idx].is_active ~= nil and card_slots[sel.idx].is_active == false then 
+			return false
+		else
+			return true
+		end
+		
 	elseif sel.table == tables.deck then
 		-- grabbable if next row's slot is empty
 		if deck[next_card].type == card_type.empty then return true
@@ -528,21 +704,27 @@ function _draw()
 	
 	-- draw card slots
 	for slot in all(card_slots) do
+		-- draw slot itself
 		spr(slot.sprite,slot.x,slot.y,slot.w,slot.h)
 		if slot.card.val ~= nil then 
-			-- draw card
-			spr(slot.card.type,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
-			
-			-- draw number
-			if type(slot.card.val) == "number" then
-				print(slot.card.val,slot.card.x+2,slot.card.y+2,slot.card.col)
+			-- draw inactive dragons 
+			if slot.is_active ~= nil and slot.is_active == false then 
+				spr(slot.card.inactive_sprite,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
+			else
+				-- draw card
+				spr(slot.card.type,slot.card.x,slot.card.y,slot.card.w,slot.card.h)
+				-- draw number
+				if type(slot.card.val) == "number" then
+					print(slot.card.val,slot.card.x+2,slot.card.y+2,slot.card.col)
+				end
 			end
 		end
 	end
 	
 	-- draw dragon buttons
 	for button in all(dragon_buttons) do
-		spr(button.sprite,button.x,button.y,button.w,button.h)
+		if button.is_active then spr(button.active_sprite,button.x,button.y,button.w,button.h)
+		else spr(button.sprite,button.x,button.y,button.w,button.h) end
 	end
 	
 	-- draw flower slot
@@ -796,6 +978,7 @@ function set_grabbed_cards()
 				grabbed_card[gc_i].row = deck[dc_i].row
 				grabbed_card[gc_i].w = deck[dc_i].w
 				grabbed_card[gc_i].h = deck[dc_i].h
+				grabbed_card[gc_i].inactive_sprite = deck[dc_i].inactive_sprite
 
 				-- set selected card from deck to empty
 				set_empty_card(dc_i)
@@ -824,6 +1007,7 @@ function set_grabbed_cards()
 			grabbed_card[gc_i].row = card_slots[sc_i].card.row
 			grabbed_card[gc_i].w = card_slots[sc_i].card.w
 			grabbed_card[gc_i].h = card_slots[sc_i].card.h
+			grabbed_card[gc_i].inactive_sprite = card_slots[sc_i].card.inactive_sprite
 
 			-- set selected card from slot to empty
 			set_empty_card(sc_i)
