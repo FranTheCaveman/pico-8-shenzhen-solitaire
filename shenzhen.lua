@@ -1,11 +1,8 @@
 pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
-function _init()
-	cartdata("shenzhensolitaire_1")
 
-	win_count = dget(0)
-
+function set_everything()
 	animating_cards = {}
 	animating_card_slot = {}
 
@@ -206,6 +203,16 @@ function _init()
 	s = 16 -- frame speed
 end
 
+function _init()
+	cartdata("shenzhensolitaire_1")
+
+	win_count = dget(0)
+
+	music(0)
+
+	set_everything()
+end
+
 function check_game_won()
 	local i = 1
 	for card in all(deck) do
@@ -234,6 +241,7 @@ function _update()
 	if btnp(❎) then
 		if sel.state == state.hover then
 			if check_grabbable() then
+				sfx(2)
 				sel.state = state.move
 				set_grabbed_cards()
 			elseif sel.table == tables.dragons and sel.card.is_active then
@@ -281,12 +289,13 @@ function _update()
 				dest_slot.is_active = false
 				autoplay_requested = true
 			elseif sel.table == tables.new_game then
-				_init()
+				set_everything()
 			end
 
 		elseif sel.state == state.move then 
 			if check_placeable() == true then
 				-- place and clear grabbed cards
+				sfx(3)
 				place_grabbed_cards(sel.idx)
 				sel.state = state.hover
 				autoplay_requested = true
@@ -469,6 +478,9 @@ function _update()
 
 	if #animating_cards > 0 then
 		for card in all(animating_cards) do
+			if card.t == 0 then
+				sfx(1)
+			end
 			card.t += 0.08
 			if card.t >= 1 then
 				card.t = 1
@@ -520,6 +532,7 @@ function _update()
 		if check_game_won() then
 			win_count += 1
 			dset(0, win_count)
+			sfx(20)
 			increment_score = true
 		end
 	end
@@ -839,6 +852,11 @@ function _draw()
 			if type(slot.card.val) == "number" then
 				print(slot.card.val,slot.card.x+2,slot.card.y+2,slot.card.col)
 			end
+
+			-- draw shadow
+			if slot.card.val > 1 then
+				rect(slot.card.x+1,(slot.card.y+slot.card.h*8)-1,slot.card.x+(slot.card.w*8)-2,(slot.card.y+slot.card.h*8)-1,6)
+			end
 		end
 	end
 	
@@ -848,7 +866,6 @@ function _draw()
 		if i <= 8 then
 			-- draw empty slots beneath for first row
 			spr(130,card.x,card.y,card.w,card.h)
-			i+=1
 		end
 
 		-- draw card
@@ -858,6 +875,13 @@ function _draw()
 		if type(card.val) == "number" then
 			print(card.val,card.x+2,card.y+2,card.col)
 		end
+
+		-- draw shadow
+		if card.type ~= card_type.empty and i > 8 then
+			rect(card.x+1,card.y,card.x+(card.w*8)-2,card.y,6)
+		end
+
+		i+=1
 	end
 
 	-- draw grabbed cards relative to selection cursor
@@ -868,6 +892,10 @@ function _draw()
 
 			if type(card.val) == "number" then
 				print(card.val,sel.x-5,sel.y+y_offset+2,card.col)
+			end
+
+			if sel.table == tables.deck then
+				rect(sel.x-6,sel.y+y_offset,sel.x+7,sel.y+y_offset,6)
 			end
 
 			y_offset += 7
